@@ -7,7 +7,7 @@ metadata:
   description: A multilingual speech recognition model for recorded and live audio
   appid: audioqwen3asrv3
   title: Qwen3-ASR 1.7B
-  version: '1.0.16'
+  version: '1.0.17'
   categories:
     - AI
     - models
@@ -198,9 +198,11 @@ envs:
     applyOnChange: true
     # Left blank on purpose: `--max-model-len` depends on the card, which a static default cannot express.
     description: "Engine-native flags (llm-init ENGINE_ARGS). Left empty, the chart uses
-      \"--max-model-len 8192 --enforce-eager --batch-max-spans 32 --repetition-detection\",
+      \"--max-model-len 8192 --enforce-eager --batch auto --repetition-detection\",
       and 3072 instead of 8192 on a gb10, whose unified memory leaves a smaller KV budget after
-      the encoder. Whatever is here REPLACES that whole list, so carry the flags over when adding one."
+      the encoder. --batch auto lets the engine size one model call from its own quota at load;
+      --batch 300s fixes that budget instead, and --batch 0 sends one span per call. Whatever is
+      here REPLACES that whole list, so carry the flags over when adding one."
   - envName: HF_ENDPOINT
     required: false
     applyOnChange: true
