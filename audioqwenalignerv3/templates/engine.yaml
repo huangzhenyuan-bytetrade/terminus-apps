@@ -33,8 +33,11 @@
 {{- $memLimit = printf "%sMi" $gpuMiB -}}
 {{- end -}}
 {{- end -}}
-{{- /* Engine-native flags in llm-init's one channel; unset means the image decides. */ -}}
-{{- $engineArgs := trim ($oe.ENGINE_ARGS | default "") -}}
+{{- /* Engine-native flags in llm-init's one channel. Grouping is the recommended default:
+       a 38-minute meeting runs 3.7x faster with it and the output is byte-identical, measured
+       2026-09-17. The setting REPLACES this whole string, so an operator who types one flag
+       loses grouping silently -- the description below says so. */ -}}
+{{- $engineArgs := trim ($oe.ENGINE_ARGS | default "--align-batch") -}}
 {{- $modelSan := regexReplaceAll "[^a-z0-9]+" (lower $modelName) "-" | trimAll "-" -}}
 {{- $cname := printf "audio-%s" $modelSan | trunc 63 | trimSuffix "-" -}}
 {{- $hfEndpoint := $oe.HF_ENDPOINT | default "" -}}

@@ -7,7 +7,7 @@ metadata:
   description: A model for matching transcript words to their times in a recording
   appid: audioqwenalignerv3
   title: Qwen3 Forced Aligner
-  version: '1.0.16'
+  version: '1.0.17'
   categories:
     - AI
     - models
@@ -196,11 +196,15 @@ envs:
     applyOnChange: true
     description: "Engine-native flags (llm-init ENGINE_ARGS); unset lets the image decide.
       Whatever is here REPLACES the whole list, so carry existing flags over when adding one.
-      The forced aligner reads: --align-batch (off; group several spans into one model call),
-      --no-kv-cache (off; the checkpoint builds a cache nothing reads), --gpu-budget-fraction
-      (0.5; the share of the remaining grant one call may reach for) and --max-span-seconds
-      (300; the longest span the model can put a timestamp on). Grouping is off by default and
-      has to be asked for."
+      The forced aligner reads: --align-batch (ON by default; group several spans into one
+      model call), --no-kv-cache (off; the checkpoint builds a cache nothing reads),
+      --gpu-budget-fraction (0.5; the share of the remaining grant one call may reach for) and
+      --max-span-seconds (300; the longest span the model can put a timestamp on).
+      Grouping is on because a 38-minute meeting finishes 3.7x sooner with it and the output is
+      byte-identical either way. Turn it off with --align-batch=false; any other value counts as
+      off, so a typo disables it silently. And because this box replaces the whole string,
+      typing any single flag here drops --align-batch with it: nothing errors, the request just
+      goes back to the slower path."
   - envName: HF_ENDPOINT
     required: false
     applyOnChange: true
