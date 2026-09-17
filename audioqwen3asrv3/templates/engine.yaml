@@ -38,7 +38,7 @@
        graph capture is where startup has been seen to wedge holding the vGPU lock. */ -}}
 {{- $engineArgs := trim ($oe.ENGINE_ARGS | default "") -}}
 {{- if eq $engineArgs "" -}}
-{{- $engineArgs = printf "--max-model-len %s --enforce-eager --batch-max-spans 32 --repetition-detection" (ternary "3072" "8192" (eq $gpuType "nvidia-gb10")) -}}
+{{- $engineArgs = printf "--max-model-len %s --enforce-eager --batch auto --repetition-detection" (ternary "3072" "8192" (eq $gpuType "nvidia-gb10")) -}}
 {{- end -}}
 {{- $modelSan := regexReplaceAll "[^a-z0-9]+" (lower $modelName) "-" | trimAll "-" -}}
 {{- $cname := printf "audio-%s" $modelSan | trunc 63 | trimSuffix "-" -}}
