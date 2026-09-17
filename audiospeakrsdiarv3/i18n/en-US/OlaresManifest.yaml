@@ -1,17 +1,69 @@
 metadata:
   title: Speakrs Diarization
-  description: A local model for accurate speaker-turn separation in recordings
+  description: Speaker diarization on ONNX Runtime, no torch stack
 
 spec:
+  onlyAdmin: true
   fullDescription: |
-    Speakrs Diarization separates a recording into speaker turns and marks when each person speaks. It assigns anonymous labels rather than identifying people by name. This app uses the accuracy-focused pipeline and runs locally with ONNX Runtime.
+    **Model**
 
-    **Key features**
+    speakrs, the pyannote `community-1` diarization pipeline reimplemented in Rust on
+    ONNX Runtime: segmentation, powerset decode, overlap-add aggregation, binarization,
+    embedding, PLDA and VBx clustering.
 
-    - Detect speech and changes between speakers.
-    - Assign consistent anonymous labels across a recording.
-    - Process segmentation, speaker embeddings, and clustering in one pipeline.
-    - Choose a more accurate or a faster processing mode after install.
-    - Make diarization results available to compatible Olares applications.
+    **Configuration**
+    - Model name: `speakrs/speakrs-community-1`
+    - Weights: `hf://avencera/speakrs-models`
+    - Capability: `diar`
+    - Required GPU memory: `3Gi`, on a GPU compute mode; a CPU install reserves none
+    - Engine: speakrs on ONNX Runtime -- CUDA on an NVIDIA compute mode, OpenVINO on an
+      Intel one, CPU otherwise
+    - GPU: NVIDIA, Turing or newer. Built on CUDA 13, which no longer supports Pascal
+      (GTX 10 series, P100) or Volta (V100); on arm64 the only supported machine is GB10
+    - No GPU: install on the CPU compute mode, which has no card requirement and no
+      architecture requirement either
+    - Intel GPU: install on the Intel (integrated) or Intel GPU (discrete) compute mode. The
+      engine runs on ONNX Runtime's OpenVINO provider there, and refuses to start if OpenVINO
+      does not take the graph -- a card that cannot be used is an error rather than a silent
+      fall back to CPU. That cuts both ways: an Intel install has no CPU fallback, so if the
+      card becomes unusable the engine stops rather than serving slowly, and selecting `cpu`
+      in EXECUTION_MODE will not rescue it. Reinstalling on the CPU compute mode is the way
+      back
 
-    A compatible NVIDIA GPU with at least `3Gi` of GPU memory is required. GTX 10-series, Tesla P100, and V100 cards are not supported.
+    **Accuracy against speed**
+
+    The `EXECUTION_MODE` setting picks one, and changing it restarts the engine. `cuda`
+    matches pyannote's accuracy and runs about 1.8x faster than it. `cuda-fast` runs about
+    3.6x faster and costs 0.3-1.0 DER points, the cost growing with how densely speakers
+    overlap. That trade is NVIDIA's alone: `cpu` and `openvino` have no fast variant, so on
+    those the speed this setting can buy is none. They are the same pipeline as `cuda` with
+    different hardware under them: the same weights, the same steps and the same result, at their own speed.
+    Every mode loads the same weights -- the mode changes how the pipeline is run, not what
+    it runs -- so switching re-downloads nothing and the model name is the same either way.
+    Because it is, this setting is the only place a run's mode is recorded.
+
+    🔴 Where this setting and the compute mode chosen at install disagree, the compute mode
+    wins: a CPU install runs `cpu` and an Intel install runs `openvino`, whatever is selected
+    here. An NVIDIA install is where the setting decides something -- `cuda`, `cuda-fast` and
+    `cpu` all run there -- except for `openvino`, which that image has no provider for and
+    which falls back to `cuda`. Correcting rather than refusing is deliberate: the platform
+    re-sends the value it remembers from an earlier install attempt, so a refusal would fire
+    on installs nobody misconfigured. The cost is that the console can name a mode the engine
+    is not running.
+
+    **Tuning**
+
+    A caller may set `exclusive`, `min_duration_off`, `min_duration_on` and
+    `clustering_threshold` per request on `POST /v1/audio/diarization`; `ENGINE_ARGS` sets
+    the same four as this deployment's defaults. This engine derives the speaker count from
+    its clustering and cannot be constrained to one, so `num_speakers`, `min_speakers` and
+    `max_speakers` are refused rather than accepted and ignored.
+
+    **How it runs**
+
+    llm-init downloads the weights and serves the control plane; the engine waits for them
+    and then serves `/v1/*` behind llm-init's reverse proxy.
+
+entrances:
+  - name: audiospeakrsdiarv3
+    title: Speakrs Diarization
