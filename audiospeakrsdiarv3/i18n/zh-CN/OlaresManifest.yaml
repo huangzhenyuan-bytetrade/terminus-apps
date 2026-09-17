@@ -1,17 +1,58 @@
 metadata:
   title: Speakrs Diarization
-  description: 用于精确划分录音中说话人片段的本地模型
+  description: 说话人分离，跑在 ONNX Runtime 上，不带 torch
 
 spec:
+  onlyAdmin: true
   fullDescription: |
-    Speakrs Diarization 可将录音划分为不同说话人的片段，并标记每个人的发言时间。它使用匿名标签，不会按姓名识别真实身份。本应用使用偏重准确度的处理流程，并通过 ONNX Runtime 在本地运行。
+    **模型**
 
-    **主要功能**
+    speakrs——把 pyannote `community-1` 分离流水线用 Rust 在 ONNX Runtime 上重写了一遍：
+    分割、powerset 解码、重叠相加汇总、二值化、声纹嵌入、PLDA 与 VBx 聚类。
 
-    - 检测语音和说话人变化。
-    - 在整段录音中使用一致的匿名说话人标签。
-    - 在一个流程中完成分段、说话人嵌入和聚类。
-    - 安装后可在更准确或更快的处理模式之间选择。
-    - 向兼容的 Olares 应用提供说话人分离结果。
+    **配置**
+    - 模型名：`speakrs/speakrs-community-1`
+    - 权重：`hf://avencera/speakrs-models`
+    - 能力：`diar`
+    - 所需显存：`3Gi`，仅限显卡模式；装成 CPU 模式不占显存
+    - 引擎：speakrs，跑在 ONNX Runtime 上——NVIDIA 模式走 CUDA，Intel 模式走 OpenVINO，其余走 CPU
+    - 显卡：NVIDIA，图灵（Turing）及更新的架构。基于 CUDA 13 构建，不再支持帕斯卡
+      （GTX 10 系、P100）和伏特（V100）；arm64 上只支持 GB10
+    - 没有显卡：装的时候选 CPU 模式，它不要求显卡，也不限制 CPU 架构
+    - Intel 显卡：装的时候选 Intel（集显）或 Intel GPU（独显）模式。那时引擎跑在
+      ONNX Runtime 的 OpenVINO 后端上；**如果 OpenVINO 没能接手计算图，引擎会直接报错退出**
+      ——卡用不上是一个错误，而不是悄悄退回 CPU。这一条是双刃的：**Intel 模式没有 CPU 退路**，
+      卡一旦用不了，引擎是停掉而不是变慢，而且在 EXECUTION_MODE 里选 `cpu` 也救不回来。
+      回去的办法是重装成 CPU 计算模式
 
-    需要配备至少 `3Gi` 显存的兼容 NVIDIA GPU。不支持 GTX 10 系列、Tesla P100 和 V100 显卡。
+    **精度与速度**
+
+    由 `EXECUTION_MODE` 这一项选择，改动后引擎会重启。`cuda` 的精度与 pyannote 持平，
+    速度约为它的 1.8 倍；`cuda-fast` 速度约为 3.6 倍，代价是 0.3 到 1.0 个 DER 点，
+    说话人重叠越密代价越大。**这个权衡只有 NVIDIA 有**：`cpu` 和 `openvino` 没有对应的快速档，
+    在它们上面这一项买不到任何速度。它们跟 `cuda` 是同一条流水线，只是底下换了硬件：
+    同一份权重、同样的步骤、同样的结果，各自的速度。所有模式加载的是同一份权重——模式改变的是
+    流水线怎么跑，不是跑的什么——所以切换模式不会重新下载，模型名也都一样。也正因为模型名一样，
+    这一项设置是唯一能看出某次运行用了哪种模式的地方。
+
+    🔴 这一项跟装的时候选的计算模式对不上时，以计算模式为准：装成 CPU 模式就跑 `cpu`，
+    装成 Intel 模式就跑 `openvino`，不管这里选的是什么。真正由这一项说了算的是 NVIDIA 模式，
+    那里 `cuda`、`cuda-fast`、`cpu` 三个都跑得了；只有 `openvino` 跑不了——那个镜像里没有
+    OpenVINO 后端——选了会回落到 `cuda`。之所以是纠正而不是拒绝：平台会把上一次安装尝试
+    记住的值重新发过来，拒绝就会在没人配错的安装上触发。代价是界面上可能写着引擎并没有在跑的
+    那种模式。
+
+    **可调参数**
+
+    调用方每次请求都可以单独指定 `exclusive`、`min_duration_off`、`min_duration_on`
+    和 `clustering_threshold`；`ENGINE_ARGS` 则是这四项在这个部署里的默认值。
+    本引擎从聚类中自行推断说话人数，无法被指定，因此 `num_speakers`、`min_speakers` 和
+    `max_speakers` 会被明确拒绝，而不是接受后忽略。
+
+    **工作方式**
+
+    llm-init 负责下载权重并提供控制面；引擎等权重就绪后，在 llm-init 的反向代理后面提供 `/v1/*`。
+
+entrances:
+  - name: audiospeakrsdiarv3
+    title: Speakrs Diarization

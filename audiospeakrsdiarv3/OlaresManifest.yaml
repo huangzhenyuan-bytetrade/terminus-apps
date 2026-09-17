@@ -6,9 +6,9 @@ metadata:
   name: audiospeakrsdiarv3
   appid: audiospeakrsdiarv3
   title: Speakrs Diarization
-  description: A local model for accurate speaker-turn separation in recordings
-  icon: https://app.cdn.olares.com/appstore/audioengines/avencera/icon.png
-  version: '0.0.35'
+  description: Speaker diarization on ONNX Runtime, no torch stack
+  icon: https://app.cdn.olares.com/appstore/default/defaulticon.webp
+  version: "0.0.36"
   categories:
     - AI
     - models
@@ -17,36 +17,111 @@ metadata:
     - audio
 
 spec:
-  versionName: "0.0.34"
+  versionName: "0.0.36"
   onlyAdmin: true
-  developer: Avencera
-  website: https://avencera.com
-  sourceCode: https://github.com/avencera/speakrs
-  submitter: Olares
+  developer: beclab
+  website: https://github.com/avencera/speakrs
+  sourceCode: https://github.com/beclab/audio-engines
+  submitter: huangzhenyuan-bytetrade
   locale:
     - en-US
     - zh-CN
-    - fr-FR
-    - de-DE
-    - ja-JP
-    - it-IT
-    - es-ES
-  doc: https://docs.rs/speakrs
   license:
-    - text: Apache-2.0
-      url: https://github.com/avencera/speakrs/blob/master/LICENSE
+    - text: MIT
+      url: https://github.com/beclab/llm-init
+  upgradeDescription: |
+    0.0.33: Runs on Intel machines. Installs where there is no GPU at all, and uses an
+    Intel integrated or discrete GPU where there is one -- the compute mode offered at install
+    now includes CPU, Intel and Intel GPU alongside NVIDIA, and EXECUTION_MODE has matching
+    `cpu` and `openvino` settings. The compute mode is the one that matters: where the two
+    disagree the engine runs what the machine can, so a CPU install cannot be made to attempt
+    a CUDA mode. Diarization on CPU is slower than on a card and
+    produces the same result; the modes differ in what runs them, not in what they run. On a
+    machine that does have a supported card, install now asks which processor to use rather
+    than choosing the card silently.
+    0.0.32: The hang described under 0.0.30 is fixed again. 0.0.31 shipped an engine built
+    before that fix, so a file ffmpeg could not decode would still wait forever. Everything
+    0.0.31 brought is kept: an engine whose worker process dies now exits and is restarted,
+    instead of leaving the application answering every request with "not ready".
+    0.0.30: A file that made ffmpeg write more than a pipe buffer of diagnostics could hang a
+    request forever -- no error, no timeout, just a caller waiting. Fixed, along with the child
+    process a failed decode left behind. Also says which cards this runs on, which nothing did
+    before: NVIDIA Turing or newer, and not Pascal or Volta, which CUDA 13 no longer supports.
+    0.0.29: Runs on arm64 as well, which in practice means GB10 -- the only arm64 machine the
+    platform can schedule a GPU onto. ONNX Runtime publishes no aarch64 build carrying the CUDA
+    execution provider, so that half is built from source. GB10 allocates the GPU out of system
+    RAM, so the engine's own memory request and limit carry the quota there.
+    0.0.27: Model Console can restart the engine. The engine shell now runs under
+    supervise_engine, sourced from the shared run state, so a restart relaunches the
+    engine in place; it used to replace itself with the engine and leave nobody to ask.
+    0.0.26: Carries forward the llm-init bump and the run-state move that platform maintainers
+    made to this app in the index, which a publish from our own source would otherwise have
+    reverted.
+    0.0.25: Declares itself to the GPU scheduler, which it never did before, and reserves the
+    3Gi that measurement says it needs instead of the 2Gi that was half of a neighbour's number.
+    0.0.24: One application serves both execution modes. EXECUTION_MODE chooses accuracy
+    or speed and can be changed after install; it used to be a second application, chosen
+    at install time and unchangeable afterwards. Every setting now says what it takes.
+    0.0.23: Initial release.
   fullDescription: |
-    Speakrs Diarization separates a recording into speaker turns and marks when each person speaks. It assigns anonymous labels rather than identifying people by name. This app uses the accuracy-focused pipeline and runs locally with ONNX Runtime.
+    **Model**
 
-    **Key features**
+    speakrs, the pyannote `community-1` diarization pipeline reimplemented in Rust on
+    ONNX Runtime: segmentation, powerset decode, overlap-add aggregation, binarization,
+    embedding, PLDA and VBx clustering.
 
-    - Detect speech and changes between speakers.
-    - Assign consistent anonymous labels across a recording.
-    - Process segmentation, speaker embeddings, and clustering in one pipeline.
-    - Choose a more accurate or a faster processing mode after install.
-    - Make diarization results available to compatible Olares applications.
+    **Configuration**
+    - Model name: `speakrs/speakrs-community-1`
+    - Weights: `hf://avencera/speakrs-models`
+    - Capability: `diar`
+    - Required GPU memory: `3Gi`, on a GPU compute mode; a CPU install reserves none
+    - Engine: speakrs on ONNX Runtime -- CUDA on an NVIDIA compute mode, OpenVINO on an
+      Intel one, CPU otherwise
+    - GPU: NVIDIA, Turing or newer. Built on CUDA 13, which no longer supports Pascal
+      (GTX 10 series, P100) or Volta (V100); on arm64 the only supported machine is GB10
+    - No GPU: install on the CPU compute mode, which has no card requirement and no
+      architecture requirement either
+    - Intel GPU: install on the Intel (integrated) or Intel GPU (discrete) compute mode. The
+      engine runs on ONNX Runtime's OpenVINO provider there, and refuses to start if OpenVINO
+      does not take the graph -- a card that cannot be used is an error rather than a silent
+      fall back to CPU. That cuts both ways: an Intel install has no CPU fallback, so if the
+      card becomes unusable the engine stops rather than serving slowly, and selecting `cpu`
+      in EXECUTION_MODE will not rescue it. Reinstalling on the CPU compute mode is the way
+      back
 
-    A compatible NVIDIA GPU with at least `3Gi` of GPU memory is required. GTX 10-series, Tesla P100, and V100 cards are not supported.
+    **Accuracy against speed**
+
+    The `EXECUTION_MODE` setting picks one, and changing it restarts the engine. `cuda`
+    matches pyannote's accuracy and runs about 1.8x faster than it. `cuda-fast` runs about
+    3.6x faster and costs 0.3-1.0 DER points, the cost growing with how densely speakers
+    overlap. That trade is NVIDIA's alone: `cpu` and `openvino` have no fast variant, so on
+    those the speed this setting can buy is none. They are the same pipeline as `cuda` with
+    different hardware under them: the same weights, the same steps and the same result, at their own speed.
+    Every mode loads the same weights -- the mode changes how the pipeline is run, not what
+    it runs -- so switching re-downloads nothing and the model name is the same either way.
+    Because it is, this setting is the only place a run's mode is recorded.
+
+    🔴 Where this setting and the compute mode chosen at install disagree, the compute mode
+    wins: a CPU install runs `cpu` and an Intel install runs `openvino`, whatever is selected
+    here. An NVIDIA install is where the setting decides something -- `cuda`, `cuda-fast` and
+    `cpu` all run there -- except for `openvino`, which that image has no provider for and
+    which falls back to `cuda`. Correcting rather than refusing is deliberate: the platform
+    re-sends the value it remembers from an earlier install attempt, so a refusal would fire
+    on installs nobody misconfigured. The cost is that the console can name a mode the engine
+    is not running.
+
+    **Tuning**
+
+    A caller may set `exclusive`, `min_duration_off`, `min_duration_on` and
+    `clustering_threshold` per request on `POST /v1/audio/diarization`; `ENGINE_ARGS` sets
+    the same four as this deployment's defaults. This engine derives the speaker count from
+    its clustering and cannot be constrained to one, so `num_speakers`, `min_speakers` and
+    `max_speakers` are refused rather than accepted and ignored.
+
+    **How it runs**
+
+    llm-init downloads the weights and serves the control plane; the engine waits for them
+    and then serves `/v1/*` behind llm-init's reverse proxy.
   supportArch:
     - amd64
     - arm64
@@ -72,6 +147,38 @@ spec:
       limitedMemory: 7Gi
       requiredDisk: 2Gi
       limitedDisk: 20Gi
+
+    - mode: cpu
+      supportMultiCard: false
+      supportMultiNodes: false
+      requiredCpu: "1"
+      limitedCpu: "5"
+      requiredMemory: 3328Mi
+      limitedMemory: 12Gi
+      requiredDisk: 2Gi
+      limitedDisk: 20Gi
+
+    - mode: intel
+      supportMultiCard: false
+      supportMultiNodes: false
+      requiredCpu: "1"
+      limitedCpu: "5"
+      requiredMemory: 10Gi
+      limitedMemory: 16Gi
+      requiredDisk: 2Gi
+      limitedDisk: 20Gi
+
+    - mode: intel-gpu
+      supportMultiCard: false
+      supportMultiNodes: false
+      requiredCpu: "1"
+      limitedCpu: "5"
+      requiredMemory: 3Gi
+      limitedMemory: 12Gi
+      requiredDisk: 2Gi
+      limitedDisk: 20Gi
+      requiredGPUMemory: 3Gi
+      limitedGPUMemory: 3Gi
 
 envs:
   - envName: MODEL_SOURCE
@@ -168,15 +275,37 @@ envs:
     type: string
     editable: true
     applyOnChange: true
-    default: cuda
+    default: auto
     options:
+      - title: Match the compute mode (auto)
+        value: auto
       - title: Accurate (cuda)
         value: cuda
       - title: Fast (cuda-fast)
         value: cuda-fast
-    description: "Accuracy against speed. `cuda` matches pyannote's accuracy and runs about
+      - title: CPU (cpu)
+        value: cpu
+      - title: Intel GPU (openvino)
+        value: openvino
+    description: "Accuracy against speed. `auto`, the default, follows the compute mode chosen
+      at install: a CPU install runs `cpu`, an Intel install runs `openvino`, an NVIDIA install
+      runs `cuda`. It exists because the
+      platform supplies this setting's default on every install, including the validation pass
+      the store makes for each compute mode a manifest declares -- so without a value that means
+      \"whatever fits\", a CPU install carries a CUDA mode it cannot run and there is no way to
+      tell that apart from an installer who asked for one. An NVIDIA install is the only one
+      where this setting decides anything: `cuda`, `cuda-fast` and `cpu` all run there, while
+      `openvino` does not and falls back to `cuda`. On a CPU or an Intel install the engine runs
+      the mode that fits the hardware whatever is selected here, because the platform also
+      re-sends the value it remembers from an earlier install, and a chart cannot tell that
+      from a deliberate choice. Choosing `cpu` on an NVIDIA install does not give the card
+      back: the reservation is made by the compute mode when the app is installed, so it is
+      still held while the engine runs on the processor.
+      `cuda` matches pyannote's accuracy and runs about
       1.8x faster than it. `cuda-fast` runs about 3.6x faster by stepping the segmentation
-      window 2s instead of 1s, and costs 0.3-1.0 DER points -- the cost is speaker confusion
+      window 2s instead of 1s, and costs 0.3-1.0 DER points. That trade is offered on NVIDIA
+      only: there is no fast variant of the CPU or Intel modes, so on those the speed this
+      setting can buy is none -- the cost is speaker confusion
       and grows with how densely speakers overlap, so it is small on clean single-speaker-at-
       a-time audio and around a point on far-field meetings. Changing this restarts the engine
       and reloads the model. The first request after any restart costs about 50
@@ -211,7 +340,10 @@ envs:
       drops speech bursts shorter than it; --exclusive returns non-overlapping turns by
       default. A caller may override those four per request. --max-audio-seconds (default
       14400, four hours) caps clip length; this engine holds the whole clip in memory, so
-      raising it past what MEMORY_LIMIT covers turns a long upload into an OOM kill. The
+      raising it past what MEMORY_LIMIT covers turns a long upload into an OOM kill. On an
+      Intel install, --openvino-batching off runs segmentation one window at a time instead of
+      through the batched model prepared at startup; it is there for measuring, about 4x
+      slower on integrated graphics, and on is the default. The
       execution mode is NOT set here -- it has its own setting above. A flag this engine does
       not take is ignored with a warning in the log, not an error."
 
@@ -225,7 +357,6 @@ sharedEntrances:
     host: sharedentrances-api
     port: 0
     title: Speakrs Diarization
-    icon: https://app.cdn.olares.com/appstore/audioengines/avencera/icon.png
     invisible: true
     authLevel: internal
 
@@ -234,7 +365,6 @@ entrances:
     host: download-svc
     port: 8090
     title: Speakrs Diarization
-    icon: https://app.cdn.olares.com/appstore/audioengines/avencera/icon.png
     authLevel: internal
     openMethod: window
 
@@ -245,7 +375,7 @@ options:
   apiTimeout: 0
   dependencies:
     - name: olares
-      version: ">=1.12.7-0"
+      version: ">=1.12.6-0"
       type: system
 
 workloadReplicas:
